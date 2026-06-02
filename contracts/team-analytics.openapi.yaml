@@ -1,0 +1,360 @@
+openapi: 3.1.0
+info:
+  title: FIT4110 Lab 04 - Team Analytics API
+  version: 0.4.0
+  contact:
+    name: team-analytics
+  description: |
+    Contract for the Dockerized Smart Campus Analytics service.
+    The service accepts mock campus events and keeps them in memory for Lab 04.
+    Lab 05 can replace the in-memory store with TimescaleDB or another database.
+servers:
+  - url: http://localhost:8000
+    description: Local or Docker container service
+  - url: http://localhost:4010
+    description: Prism mock server
+tags:
+  - name: system
+    description: Health and runtime information
+  - name: events
+    description: Analytics event ingestion and lookup
+  - name: analytics
+    description: Derived analytics summaries
+
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      tags: [system]
+      operationId: getHealth
+      summary: Check service health
+      description: Public health check used by Docker HEALTHCHECK and quick smoke tests.
+      security: []
+      responses:
+        "200":
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              examples:
+                ok:
+                  value:
+                    status: ok
+                    service: analytics-service
+                    version: 0.4.0
+
+  /events:
+    post:
+      tags: [events]
+      operationId: createAnalyticsEvent
+      summary: Ingest one mock analytics event
+      description: Accepts one campus analytics event after bearer-token authentication.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnalyticsEventCreate"
+            examples:
+              valid_occupancy:
+                value:
+                  source: iot-ingestion
+                  event_type: occupancy
+                  location_id: B1-F2-R201
+                  value: 76.5
+                  unit: percent
+                  timestamp: "2026-05-13T08:30:00+07:00"
+              boundary_high:
+                value:
+                  source: iot-ingestion
+                  event_type: occupancy
+                  location_id: B1-F2-R201
+                  value: 100
+                  unit: percent
+                  timestamp: "2026-05-13T08:30:00+07:00"
+      responses:
+        "201":
+          description: Event accepted
+          headers:
+            X-Warning:
+              description: Present when value is high risk.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsEventAccepted"
+              examples:
+                accepted:
+                  value:
+                    event_id: A-20260513-0001
+                    event_type: occupancy
+                    accepted: true
+                    risk_level: watch
+                    created_at: "2026-05-13T01:30:01+00:00"
+        "401":
+          description: Missing or invalid token
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "422":
+          description: Request validation failed
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /events/latest:
+    get:
+      tags: [events]
+      operationId: getLatestAnalyticsEvents
+      summary: Get latest accepted analytics events
+      description: Returns recent in-memory analytics events, optionally filtered by location.
+      parameters:
+        - in: query
+          name: location_id
+          required: false
+          schema:
+            type: string
+          example: B1-F2-R201
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+          example: 5
+      responses:
+        "200":
+          description: Latest analytics events
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AnalyticsEvent"
+        "401":
+          description: Missing or invalid token
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "422":
+          description: Query validation failed
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /events/{event_id}:
+    get:
+      tags: [events]
+      operationId: getAnalyticsEventById
+      summary: Get one analytics event by id
+      description: Returns one accepted analytics event, or a ProblemDetails response when it is missing.
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^A-[0-9]{8}-[0-9]{4}$"
+          example: A-20260513-0001
+      responses:
+        "200":
+          description: Analytics event detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsEvent"
+        "401":
+          description: Missing or invalid token
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Event not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /analytics/summary:
+    get:
+      tags: [analytics]
+      operationId: getAnalyticsSummary
+      summary: Get a simple in-memory analytics summary
+      description: Calculates simple counters from events accepted since the service started.
+      parameters:
+        - in: query
+          name: location_id
+          required: false
+          schema:
+            type: string
+          example: B1-F2-R201
+      responses:
+        "200":
+          description: Analytics summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsSummary"
+        "401":
+          description: Missing or invalid token
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: token
+
+  schemas:
+    AnalyticsEventType:
+      type: string
+      enum: [occupancy, energy, safety, maintenance]
+
+    AnalyticsUnit:
+      type: string
+      enum: [percent, count, score, kwh]
+
+    RiskLevel:
+      type: string
+      enum: [normal, watch, high]
+
+    AnalyticsEventCreate:
+      type: object
+      required: [source, event_type, location_id, value, timestamp]
+      properties:
+        source:
+          type: string
+          minLength: 3
+          example: iot-ingestion
+        event_type:
+          $ref: "#/components/schemas/AnalyticsEventType"
+        location_id:
+          type: string
+          minLength: 3
+          example: B1-F2-R201
+        value:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Lab 04 boundary value for analytics events.
+          example: 76.5
+        unit:
+          $ref: "#/components/schemas/AnalyticsUnit"
+        timestamp:
+          type: string
+          format: date-time
+          example: "2026-05-13T08:30:00+07:00"
+
+    AnalyticsEvent:
+      allOf:
+        - $ref: "#/components/schemas/AnalyticsEventCreate"
+        - type: object
+          required: [event_id, risk_level, created_at]
+          properties:
+            event_id:
+              type: string
+              pattern: "^A-[0-9]{8}-[0-9]{4}$"
+              example: A-20260513-0001
+            risk_level:
+              $ref: "#/components/schemas/RiskLevel"
+            created_at:
+              type: string
+              format: date-time
+              example: "2026-05-13T01:30:01+00:00"
+
+    AnalyticsEventAccepted:
+      type: object
+      required: [event_id, event_type, accepted, risk_level, created_at]
+      properties:
+        event_id:
+          type: string
+          pattern: "^A-[0-9]{8}-[0-9]{4}$"
+          example: A-20260513-0001
+        event_type:
+          $ref: "#/components/schemas/AnalyticsEventType"
+        accepted:
+          type: boolean
+          example: true
+        risk_level:
+          $ref: "#/components/schemas/RiskLevel"
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-05-13T01:30:01+00:00"
+
+    AnalyticsSummary:
+      type: object
+      required: [event_count, average_value, high_risk_count]
+      properties:
+        location_id:
+          type:
+            - string
+            - "null"
+          example: B1-F2-R201
+        event_count:
+          type: integer
+          minimum: 0
+          example: 3
+        average_value:
+          type: number
+          example: 82.17
+        high_risk_count:
+          type: integer
+          minimum: 0
+          example: 1
+
+    HealthResponse:
+      type: object
+      required: [status, service, version]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+          example: ok
+        service:
+          type: string
+          example: analytics-service
+        version:
+          type: string
+          example: 0.4.0
+
+    ProblemDetails:
+      type: object
+      required: [type, title, status, detail]
+      properties:
+        type:
+          type: string
+          example: https://smart-campus.local/problems/validation-error
+        title:
+          type: string
+          example: Validation error
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+          example: 422
+        detail:
+          type: string
+          example: body.value must be less than or equal to 100
+        instance:
+          type: string
+          example: /events

@@ -1,6 +1,7 @@
 import os
 from datetime import datetime, timezone
 from enum import Enum
+from http import HTTPStatus
 from typing import Dict, List, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, status
@@ -9,32 +10,39 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 
-SERVICE_NAME = os.getenv("SERVICE_NAME", "iot-ingestion")
+SERVICE_NAME = os.getenv("SERVICE_NAME", "analytics-service")
 SERVICE_VERSION = os.getenv("SERVICE_VERSION", "0.4.0")
 AUTH_TOKEN = os.getenv("AUTH_TOKEN", "local-dev-token")
 
 
 app = FastAPI(
-    title="FIT4110 Lab 04 - IoT Ingestion Service",
+    title="FIT4110 Lab 04 - Analytics Service",
     version=SERVICE_VERSION,
     description=(
-        "Dockerized IoT Ingestion API aligned with the Lab 03 OpenAPI/Postman contract."
+        "Dockerized Smart Campus Analytics API for Lab 04. "
+        "The service accepts mock campus events and exposes recent events for verification."
     ),
 )
 
 
-class SensorMetric(str, Enum):
-    temperature = "temperature"
-    humidity = "humidity"
-    motion = "motion"
-    smoke = "smoke"
+class AnalyticsEventType(str, Enum):
+    occupancy = "occupancy"
+    energy = "energy"
+    safety = "safety"
+    maintenance = "maintenance"
 
 
-class SensorUnit(str, Enum):
-    celsius = "celsius"
+class AnalyticsUnit(str, Enum):
     percent = "percent"
-    boolean = "boolean"
-    ppm = "ppm"
+    count = "count"
+    score = "score"
+    kwh = "kwh"
+
+
+class RiskLevel(str, Enum):
+    normal = "normal"
+    watch = "watch"
+    high = "high"
 
 
 class ProblemDetails(BaseModel):
@@ -51,39 +59,42 @@ class HealthResponse(BaseModel):
     version: str
 
 
-class SensorReadingCreate(BaseModel):
-    device_id: str = Field(..., min_length=3, examples=["ESP32-LAB-A01"])
-    metric: SensorMetric = Field(..., examples=["temperature"])
+class AnalyticsEventCreate(BaseModel):
+    source: str = Field(..., min_length=3, examples=["iot-ingestion"])
+    event_type: AnalyticsEventType = Field(..., examples=["occupancy"])
+    location_id: str = Field(..., min_length=3, examples=["B1-F2-R201"])
     value: float = Field(
         ...,
-        ge=-40,
-        le=80,
-        description="Boundary range used in Lab 03 and Lab 04: -40 to 80.",
-        examples=[31.5],
+        ge=0,
+        le=100,
+        description="Lab 04 analytics boundary: value must be between 0 and 100.",
+        examples=[76.5],
     )
-    unit: Optional[SensorUnit] = Field(default=None, examples=["celsius"])
+    unit: AnalyticsUnit = Field(default=AnalyticsUnit.percent, examples=["percent"])
     timestamp: str = Field(..., examples=["2026-05-13T08:30:00+07:00"])
 
 
-class SensorReading(BaseModel):
-    reading_id: str
-    device_id: str
-    metric: SensorMetric
+class AnalyticsEvent(BaseModel):
+    event_id: str
+    source: str
+    event_type: AnalyticsEventType
+    location_id: str
     value: float
-    unit: Optional[SensorUnit] = None
+    unit: AnalyticsUnit
+    risk_level: RiskLevel
     timestamp: str
     created_at: str
 
 
-class SensorReadingCreated(BaseModel):
-    reading_id: str
-    device_id: str
-    metric: SensorMetric
+class AnalyticsEventAccepted(BaseModel):
+    event_id: str
+    event_type: AnalyticsEventType
     accepted: bool
+    risk_level: RiskLevel
     created_at: str
 
 
-READINGS: List[Dict] = []
+EVENTS: List[Dict] = []
 
 
 def build_problem(
@@ -112,13 +123,13 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
     else:
         problem = build_problem(
             status_code=exc.status_code,
-            title=status.HTTP_STATUS_CODES.get(exc.status_code, "HTTP Error"),
+            title=HTTPStatus(exc.status_code).phrase,
             detail=str(exc.detail),
             instance=str(request.url.path),
         )
 
     problem.setdefault("status", exc.status_code)
-    problem.setdefault("title", status.HTTP_STATUS_CODES.get(exc.status_code, "HTTP Error"))
+    problem.setdefault("title", HTTPStatus(exc.status_code).phrase)
     problem.setdefault("type", "about:blank")
     problem.setdefault("detail", "Request failed")
     problem.setdefault("instance", str(request.url.path))
@@ -182,9 +193,17 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def next_reading_id() -> str:
+def next_event_id() -> str:
     today = datetime.now(timezone.utc).strftime("%Y%m%d")
-    return f"R-{today}-{len(READINGS) + 1:04d}"
+    return f"A-{today}-{len(EVENTS) + 1:04d}"
+
+
+def classify_risk(value: float) -> RiskLevel:
+    if value >= 90:
+        return RiskLevel.high
+    if value >= 75:
+        return RiskLevel.watch
+    return RiskLevel.normal
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -197,60 +216,62 @@ def health() -> HealthResponse:
 
 
 @app.post(
-    "/readings",
-    response_model=SensorReadingCreated,
+    "/events",
+    response_model=AnalyticsEventAccepted,
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(verify_bearer_token)],
     responses={
         401: {"model": ProblemDetails},
         422: {"model": ProblemDetails},
-        429: {"model": ProblemDetails},
     },
 )
-def create_reading(payload: SensorReadingCreate, response: Response) -> SensorReadingCreated:
-    if payload.metric == SensorMetric.temperature and payload.value >= 70:
-        response.headers["X-Warning"] = "high-temperature"
+def create_event(payload: AnalyticsEventCreate, response: Response) -> AnalyticsEventAccepted:
+    risk_level = classify_risk(payload.value)
+    if risk_level == RiskLevel.high:
+        response.headers["X-Warning"] = "high-analytics-value"
 
-    reading_id = next_reading_id()
+    event_id = next_event_id()
     created_at = now_iso()
 
     item = {
-        "reading_id": reading_id,
-        "device_id": payload.device_id,
-        "metric": payload.metric.value,
+        "event_id": event_id,
+        "source": payload.source,
+        "event_type": payload.event_type.value,
+        "location_id": payload.location_id,
         "value": payload.value,
-        "unit": payload.unit.value if payload.unit else None,
+        "unit": payload.unit.value,
+        "risk_level": risk_level.value,
         "timestamp": payload.timestamp,
         "created_at": created_at,
     }
-    READINGS.append(item)
+    EVENTS.append(item)
 
-    return SensorReadingCreated(
-        reading_id=reading_id,
-        device_id=payload.device_id,
-        metric=payload.metric,
+    return AnalyticsEventAccepted(
+        event_id=event_id,
+        event_type=payload.event_type,
         accepted=True,
+        risk_level=risk_level,
         created_at=created_at,
     )
 
 
-@app.get("/readings/latest", dependencies=[Depends(verify_bearer_token)])
-def latest_readings(
-    device_id: Optional[str] = Query(default=None),
+@app.get("/events/latest", dependencies=[Depends(verify_bearer_token)])
+def latest_events(
+    location_id: Optional[str] = Query(default=None),
     limit: int = Query(default=10, ge=1, le=100),
 ) -> Dict[str, List[Dict]]:
-    items = READINGS
+    items = EVENTS
 
-    if device_id:
-        items = [item for item in items if item["device_id"] == device_id]
+    if location_id:
+        items = [item for item in items if item["location_id"] == location_id]
 
     return {"items": items[-limit:]}
 
 
-@app.get("/readings/{reading_id}", dependencies=[Depends(verify_bearer_token)])
-def get_reading(reading_id: str) -> Dict:
-    for item in READINGS:
-        if item["reading_id"] == reading_id:
+@app.get("/events/{event_id}", dependencies=[Depends(verify_bearer_token)])
+def get_event(event_id: str) -> Dict:
+    for item in EVENTS:
+        if item["event_id"] == event_id:
             return item
 
     raise HTTPException(
@@ -258,8 +279,26 @@ def get_reading(reading_id: str) -> Dict:
         detail=build_problem(
             status_code=status.HTTP_404_NOT_FOUND,
             title="Not Found",
-            detail=f"Reading {reading_id} does not exist",
-            instance=f"/readings/{reading_id}",
+            detail=f"Analytics event {event_id} does not exist",
+            instance=f"/events/{event_id}",
             problem_type="https://smart-campus.local/problems/not-found",
         ),
     )
+
+
+@app.get("/analytics/summary", dependencies=[Depends(verify_bearer_token)])
+def analytics_summary(location_id: Optional[str] = Query(default=None)) -> Dict:
+    items = EVENTS
+    if location_id:
+        items = [item for item in items if item["location_id"] == location_id]
+
+    count = len(items)
+    average_value = round(sum(item["value"] for item in items) / count, 2) if count else 0
+    high_risk_count = len([item for item in items if item["risk_level"] == RiskLevel.high.value])
+
+    return {
+        "location_id": location_id,
+        "event_count": count,
+        "average_value": average_value,
+        "high_risk_count": high_risk_count,
+    }
