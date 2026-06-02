@@ -1,0 +1,18 @@
+[
+  {
+    "source": "iot-ingestion",
+    "event_type": "occupancy",
+    "location_id": "B1-F2-R201",
+    "value": 76.5,
+    "unit": "percent",
+    "timestamp": "2026-05-13T08:30:00+07:00"
+  },
+  {
+    "source": "access-gate",
+    "event_type": "safety",
+    "location_id": "GATE-A",
+    "value": 24,
+    "unit": "count",
+    "timestamp": "2026-05-13T08:31:00+07:00"
+  }
+]

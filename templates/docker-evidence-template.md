@@ -2,16 +2,16 @@
 
 ## Team
 
-- Team name:
-- Service:
-- Image tag:
+- Team name: team-analytics
+- Service: analytics-service
+- Image tag: fit4110/analytics-service:lab04
 
 ## 1. Build evidence
 
 Command:
 
 ```bash
-docker build -t <image-name>:<tag> .
+docker build -t fit4110/analytics-service:lab04 .
 ```
 
 Paste log or screenshot here.
@@ -21,7 +21,7 @@ Paste log or screenshot here.
 Command:
 
 ```bash
-docker run --rm -p 8000:8000 --env-file .env.example <image-name>:<tag>
+docker run --rm --name fit4110-analytics-lab04 -p 8000:8000 --env-file .env.example fit4110/analytics-service:lab04
 ```
 
 Paste log or screenshot here.
@@ -38,7 +38,9 @@ Result:
 
 ```json
 {
-  "status": "ok"
+  "status": "ok",
+  "service": "analytics-service",
+  "version": "0.4.0"
 }
 ```
 

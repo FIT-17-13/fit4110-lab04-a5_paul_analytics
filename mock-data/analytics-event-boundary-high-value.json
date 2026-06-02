@@ -1,0 +1,10 @@
+[
+  {
+    "source": "iot-ingestion",
+    "event_type": "occupancy",
+    "location_id": "B1-F2-R201",
+    "value": 100,
+    "unit": "percent",
+    "timestamp": "2026-05-13T08:30:00+07:00"
+  }
+]

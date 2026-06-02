@@ -1,16 +1,22 @@
-# Submission Checklist – Lab 04
+# Submission Checklist - Lab 04
 
-Nộp các minh chứng sau:
+## Completed
 
-- [ ] `Dockerfile`
-- [ ] `.dockerignore`
-- [ ] `.env.example`
-- [ ] `RUN_LOCAL.md`
-- [ ] Contract OpenAPI đã dùng
-- [ ] Postman Collection đã chạy trên container
-- [ ] Postman Environment local/docker
-- [ ] Newman report XML/HTML
-- [ ] Log hoặc ảnh `docker build`
-- [ ] Log hoặc ảnh `docker run`
-- [ ] Log hoặc ảnh `GET /health`
-- [ ] Link hoặc tên image tag đã push
+- [x] `Dockerfile`
+- [x] `.dockerignore`
+- [x] `.env.example`
+- [x] `RUN_LOCAL.md`
+- [x] OpenAPI contract: `contracts/team-analytics.openapi.yaml`
+- [x] Postman Collection: `postman/collections/team-analytics.postman_collection.json`
+- [x] Postman local environment: `postman/environments/team-analytics_local.postman_environment.json`
+- [x] Newman XML report: `reports/newman-lab04-local.xml`
+- [x] Newman HTML report: `reports/newman-lab04-local.html`
+- [x] Docker build evidence: `reports/docker-evidence.md`
+- [x] Docker run evidence: `reports/docker-evidence.md`
+- [x] `GET /health` evidence: `reports/docker-evidence.md`
+- [x] Local image tag: `fit4110/analytics-service:v0.1.0-team-analytics`
+
+## Pending Before Final Submission
+
+- [ ] Push image to a registry, for example `ghcr.io/<owner>/team-analytics:v0.1.0-team-analytics`.
+- [ ] Add screenshot files if the lecturer requires screenshots instead of command logs.
