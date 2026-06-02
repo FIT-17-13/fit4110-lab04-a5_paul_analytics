@@ -4,7 +4,11 @@ from enum import Enum
 from typing import Dict, List, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, status
+from http.client import responses as HTTP_STATUS_CODES
+# Ensure older references to status.HTTP_STATUS_CODES work
+setattr(status, "HTTP_STATUS_CODES", HTTP_STATUS_CODES)
 from fastapi.exceptions import RequestValidationError
+import traceback
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -107,28 +111,41 @@ def build_problem(
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
-    if isinstance(exc.detail, dict):
-        problem = exc.detail
-    else:
-        problem = build_problem(
+    try:
+        if isinstance(exc.detail, dict):
+            problem = exc.detail
+        else:
+            problem = build_problem(
+                status_code=exc.status_code,
+                title=HTTP_STATUS_CODES.get(exc.status_code, "HTTP Error"),
+                detail=str(exc.detail),
+                instance=str(request.url.path),
+            )
+
+        problem.setdefault("status", exc.status_code)
+        problem.setdefault("title", HTTP_STATUS_CODES.get(exc.status_code, "HTTP Error"))
+        problem.setdefault("type", "about:blank")
+        problem.setdefault("detail", "Request failed")
+        problem.setdefault("instance", str(request.url.path))
+
+        return JSONResponse(
             status_code=exc.status_code,
-            title=status.HTTP_STATUS_CODES.get(exc.status_code, "HTTP Error"),
-            detail=str(exc.detail),
-            instance=str(request.url.path),
+            content=problem,
+            media_type="application/problem+json",
+            headers=getattr(exc, "headers", None),
         )
-
-    problem.setdefault("status", exc.status_code)
-    problem.setdefault("title", status.HTTP_STATUS_CODES.get(exc.status_code, "HTTP Error"))
-    problem.setdefault("type", "about:blank")
-    problem.setdefault("detail", "Request failed")
-    problem.setdefault("instance", str(request.url.path))
-
-    return JSONResponse(
-        status_code=exc.status_code,
-        content=problem,
-        media_type="application/problem+json",
-        headers=getattr(exc, "headers", None),
-    )
+    except Exception:
+        # If the exception handler itself fails, log traceback and return safe ProblemDetails
+        tb = traceback.format_exc()
+        print('Exception in http_exception_handler:', tb)
+        safe = build_problem(
+            status_code=500,
+            title="Internal Server Error",
+            detail="An internal error occurred while handling an HTTP exception",
+            instance=str(request.url.path),
+            problem_type="about:blank",
+        )
+        return JSONResponse(status_code=500, content=safe, media_type="application/problem+json")
 
 
 @app.exception_handler(RequestValidationError)
