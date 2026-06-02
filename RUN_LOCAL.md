@@ -1,71 +1,92 @@
-# RUN_LOCAL.md - Run Lab 04 Team Analytics
+# RUN_LOCAL.md – Hướng dẫn chạy Lab 04
 
-Use these steps after cloning the repository on a clean machine.
+Tài liệu này giúp người khác clone repo sạch và chạy lại service trong Docker.
 
-## 1. Install test dependencies
+---
+
+## 1. Clone repo
+
+```bash
+git clone <repo-url>
+cd FIT4110_lab04_docker_packaging
+```
+
+---
+
+## 2. Cài dependencies cho Newman/Prism/Spectral
 
 ```bash
 npm install
 ```
 
-## 2. Build the Docker image
+---
+
+## 3. Build Docker image
 
 ```bash
-docker build -t fit4110/analytics-service:lab04 .
+docker build -t fit4110/iot-ingestion:lab04 .
 ```
 
-## 3. Run the container
+---
+
+## 4. Run container
 
 ```bash
 docker run --rm \
-  --name fit4110-analytics-lab04 \
+  --name fit4110-iot-lab04 \
   -p 8000:8000 \
   --env-file .env.example \
-  fit4110/analytics-service:lab04
+  fit4110/iot-ingestion:lab04
 ```
 
-## 4. Check health
-
-Open another terminal:
+Mở terminal khác, kiểm tra:
 
 ```bash
 curl http://localhost:8000/health
 ```
 
-Expected:
+Kết quả mong đợi:
 
 ```json
 {
   "status": "ok",
-  "service": "analytics-service",
+  "service": "iot-ingestion",
   "version": "0.4.0"
 }
 ```
 
-## 5. Run Newman tests
+---
+
+## 5. Chạy Newman test trên container
 
 ```bash
 npm run test:local
 ```
 
-Reports:
+Report sinh tại:
 
 ```text
 reports/newman-lab04-local.xml
 reports/newman-lab04-local.html
 ```
 
-## Optional local Python run
+---
+
+## 6. Dừng container
+
+Nếu không dùng `--rm` hoặc container còn chạy:
 
 ```bash
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-uvicorn iot_app.main:app --app-dir src --host 0.0.0.0 --port 8000
+docker stop fit4110-iot-lab04
 ```
 
-## Stop the container
+---
+
+## 7. Lệnh nhanh
 
 ```bash
-docker stop fit4110-analytics-lab04
+make build
+make run
+make test-docker
+make stop
 ```
